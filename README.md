@@ -1,79 +1,266 @@
-1️⃣ Project Overview
+# 📚 Automated Library Management System (Raspberry Pi)
 
-The AI Smart Library Management System is an automation project designed to make library operations faster and smarter using Artificial Intelligence. The system uses face recognition technology and Raspberry Pi to identify students and manage book issuing and returning automatically.
+## 🚀 Project Overview
 
-This project reduces manual work in libraries and improves efficiency by maintaining digital records of users and books.
+The **Automated Library Management System** is an IoT-based project designed to automate traditional library operations like book issuing and returning.
 
-2️⃣ Problem Statement
+This system eliminates manual work by using:
 
-Traditional library systems require manual record keeping for issuing and returning books. This process can be slow, prone to human error, and requires constant supervision by library staff.
+* Barcode scanning
+* Raspberry Pi automation
+* MySQL database
+* IR sensors for user interaction
+* LCD display for real-time feedback
 
-Problems in traditional systems:
+The project improves efficiency, reduces human error, and provides a modern smart-library experience.
 
-Time-consuming manual entries
+---
 
-Possibility of record mistakes
+## 🎯 Objectives
 
-Long queues in libraries
+* Automate book issue and return process
+* Reduce manual errors and workload
+* Provide real-time feedback to users
+* Maintain accurate database records
+* Implement fine calculation and due date system
 
-Difficulty tracking issued books
+---
 
-3️⃣ Proposed Solution
+## ⚙️ Features
 
-The proposed system introduces an AI-based smart library automation system that identifies students using face recognition and records book transactions automatically.
+* 📷 Barcode-based book identification
+* 🪪 User ID card scanning
+* 📅 Automatic due date (7 days)
+* 💰 Fine calculation for late return
+* 📟 LCD display for instructions and status
+* 🔔 IR sensor-based user detection
+* 📧 Email notification system
+* 🗄️ MySQL database integration
 
-When a student approaches the system:
+---
 
-The camera captures the student's face.
+## 🏗️ System Architecture
 
-The system identifies the student using trained facial data.
+The system consists of:
 
-The student can issue or return a book.
+* **Raspberry Pi** → Main controller
+* **Camera (USB)** → Barcode scanning
+* **IR Sensors** → Detect issue/return action
+* **LCD (16x2)** → Display messages
+* **MySQL Database** → Store records
 
-The system automatically updates the library database.
+---
 
-This reduces manual work and makes the process quick and efficient.
+## 🔌 Hardware Requirements
 
-4️⃣ Key Features
+* Raspberry Pi 4 Model B
+* USB Camera
+* IR Sensors (2)
+* 16x2 LCD Display (I2C)
+* Breadboard & Jumper Wires
+* Power Adapter
 
-Face recognition for student identification
+---
 
-Automated book issuing and returning
+## 💻 Software Requirements
 
-Digital database management
+* Python 3
+* MySQL / MariaDB
+* OpenCV
+* Pyzbar
+* RPi.GPIO
+* RPLCD
+* smbus2
 
-Real-time record updates
+---
 
-LED or notification system for status indication
+## 📦 Libraries Used
 
-5️⃣ Technologies Used
+```bash
+opencv-python
+pyzbar
+mysql-connector-python
+RPi.GPIO
+pillow
+RPLCD
+smbus2
+```
 
-Raspberry Pi – main controller of the system
+---
 
-Python – programming language
+## 📂 Project Structure
 
-OpenCV – for face recognition
+```
+Automated-Library-Management-System/
+│
+├── main.py
+├── ProjectCode.py
+├── NewLibrarySQL.ino
+├── database.sql
+├── requirements.txt
+├── README.md
+├── images/
+```
 
-Camera Module – for capturing student faces
+---
 
-Database (SQLite/MySQL) – to store records
+## 🧠 Working Principle
 
-6️⃣ Expected Impact
+### 📌 Book Issuing Process
 
-Faster library operations
+1. User places hand near IR sensor
+2. System activates camera
+3. Book barcode is scanned
+4. User ID card is scanned
+5. Book is issued for 7 days
+6. Database is updated
+7. Confirmation shown on LCD
 
-Reduced manual errors
+---
 
-Automated record keeping
+### 📌 Book Return Process
 
-Improved user experience for students and staff
+1. User selects return using IR sensor
+2. Book barcode is scanned
+3. User ID is verified
+4. System checks due date
+5. Fine is calculated if overdue
+6. Database is updated
+7. Status shown on LCD
 
-7️⃣ Future Improvements
+---
 
-Web dashboard for librarians
+## 🗄️ Database Design
 
-Cloud database integration
+### 📘 Book Table
 
-Mobile notifications for due books
+* Book ID
+* Book Name
+* Availability
+* Issued To
+* Issue Date
+* Return Date
 
-AI recommendation system for books
+### 👤 User Table
+
+* User ID
+* Name
+* Email
+* Issued Books Count
+* Fine
+
+---
+
+## 🧾 Sample SQL Commands
+
+* CREATE DATABASE
+* CREATE TABLE
+* INSERT / UPDATE / DELETE
+
+---
+
+## 📟 LCD Display Usage
+
+The 16x2 LCD shows:
+
+* "Scan Book"
+* "Scan ID"
+* "Book Issued"
+* "Return Successful"
+* "Fine Applied"
+
+---
+
+## ⚡ Installation & Setup
+
+### 1️⃣ Clone Repository
+
+```bash
+git clone https://github.com/YOUR_USERNAME/Automated-Library-Management-System.git
+cd Automated-Library-Management-System
+```
+
+### 2️⃣ Install Libraries
+
+```bash
+pip install -r requirements.txt
+```
+
+### 3️⃣ Setup Database
+
+* Install MySQL/MariaDB
+* Create database
+* Import `database.sql`
+
+### 4️⃣ Run Project
+
+```bash
+python main.py
+```
+
+---
+
+## 📸 Output
+
+(Add your project images here)
+
+* Hardware setup
+* LCD output
+* Barcode scanning
+
+---
+
+## 🔧 Future Improvements
+
+* Mobile App Integration
+* Cloud Database
+* Face Recognition
+* Web Dashboard (Admin Panel)
+* RFID instead of barcode
+
+---
+
+## 🧪 Test Cases
+
+* Valid book issue
+* Invalid barcode
+* Late return fine
+* Multiple book issue
+* Wrong user scan
+
+---
+
+## ⚠️ Troubleshooting
+
+* Camera not working → Check OpenCV installation
+* LCD not displaying → Check I2C address
+* Database error → Verify credentials
+* IR sensor issue → Check GPIO pins
+
+---
+
+## 👨‍💻 Author
+
+**Atharv**
+Computer Science Engineering Student
+
+---
+
+## ⭐ Acknowledgement
+
+This project is inspired by real-world automation systems and embedded IoT solutions.
+
+---
+
+## 📌 Conclusion
+
+This project demonstrates:
+
+* Embedded Systems
+* Computer Vision
+* Database Management
+* Real-world automation
+
+It is a complete smart system suitable for academic and practical applications.
+
+---
