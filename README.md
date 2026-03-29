@@ -1,3 +1,7 @@
+![Python](https://img.shields.io/badge/Python-3-blue)
+![IoT](https://img.shields.io/badge/Project-IoT-green)
+![Status](https://img.shields.io/badge/Status-Completed-brightgreen)
+
 # 📚 Automated Library Management System (Raspberry Pi)
 
 ## 🚀 Project Overview
