@@ -1,41 +1,31 @@
-⚙️ System Requirements
+## 📦 Requirements
 
-🔹 Hardware Requirements
-Raspberry Pi 4 Model B or Raspberry Pi Zero 2 W
+This project uses the following Python libraries:
 
-Raspberry Pi Camera Module V2
-
-Breadboard
-
-Jumper wires
-
-LEDs (for status indication)
-
-Resistors
-
-MicroSD card (32GB recommended)
-
-Power supply for Raspberry Pi
-
-🔹 Software Requirements
-
-Python
-
-OpenCV (for face recognition)
-
-SQLite or MySQL (database)
-
-Raspberry Pi OS
-
-Git (version control)
-
-Visual Studio Code or any code editor
-
-🔹 Python Libraries
-
+```txt
 opencv-python
-numpy
-face-recognition
-sqlite3
-flask
+pyzbar
+mysql-connector-python
 RPi.GPIO
+pillow
+RPLCD
+smbus2
+```
+
+### 🔍 Library Purpose
+
+* **opencv-python** → Used for capturing images from the camera
+* **pyzbar** → Used for decoding barcodes and QR codes
+* **mysql-connector-python** → Connects Python with MySQL database
+* **RPi.GPIO** → Controls Raspberry Pi GPIO pins (IR sensors)
+* **pillow** → Supports image processing operations
+* **RPLCD** → Controls the 16x2 LCD display
+* **smbus2** → Enables I2C communication for LCD
+
+### ⚙️ Installation
+
+Install all dependencies using:
+
+```bash
+pip install -r requirements.txt
+```
