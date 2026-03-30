@@ -1,0 +1,137 @@
+# UPDATED MAIN CODE (WITH COUNTDOWN + SINGLE SCAN CONTROL)
+
+import cv2
+from pyzbar.pyzbar import decode
+import mysql.connector
+import time
+import RPi.GPIO as GPIO
+from datetime import datetime, timedelta
+
+# Camera Setup
+cap = cv2.VideoCapture(0)
+cap.set(3, 640)
+cap.set(4, 480)
+cap.set(cv2.CAP_PROP_FPS, 30)
+
+# IR Sensors
+IR_PIN_ISSUE = 5
+IR_PIN_RETURN = 6
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(IR_PIN_ISSUE, GPIO.IN)
+GPIO.setup(IR_PIN_RETURN, GPIO.IN)
+
+# Database
+
+db = mysql.connector.connect(
+    host="localhost",
+    user="root",
+    password="your_password",
+    database="library"
+)
+cursor = db.cursor()
+
+print("✅ System Started - Library Automation")
+
+# Countdown Function
+
+def countdown(seconds, message):
+    print(message)
+    for i in range(seconds, 0, -1):
+        print(f"⏳ {i}...")
+        time.sleep(1)
+
+# Fast Scan Function (SCAN ONLY ONCE)
+
+def scan_barcode(timeout=8):
+    start = time.time()
+    scanned_data = None
+
+    while time.time() - start < timeout:
+        ret, frame = cap.read()
+        barcodes = decode(frame)
+
+        if barcodes and scanned_data is None:
+            scanned_data = barcodes[0].data.decode('utf-8')
+            print(f"📌 Scanned: {scanned_data}")
+            break  # STOP scanning immediately after first detection
+
+        cv2.imshow("Scanner", frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    # Small delay to prevent duplicate scanning
+    time.sleep(2)
+    return scanned_data
+
+
+while True:
+    print("\n👉 Place Hand for ISSUE or RETURN")
+
+    while not (GPIO.input(IR_PIN_ISSUE) or GPIO.input(IR_PIN_RETURN)):
+        time.sleep(0.2)
+
+    mode = "ISSUE" if GPIO.input(IR_PIN_ISSUE) else "RETURN"
+    print(f"\n📖 MODE: {mode}")
+
+    # STEP 1: BOOK SCAN
+    countdown(5, "📚 Get Ready to Scan Book...")
+    book_id = scan_barcode()
+
+    if not book_id:
+        print("❌ No Book Detected")
+        continue
+
+    cursor.execute("SELECT bookname, available FROM bookdatabase WHERE uid=%s", (book_id,))
+    book = cursor.fetchone()
+
+    if not book:
+        print("❌ Book Not Found in Database")
+        continue
+
+    bookname, available = book
+    print(f"✅ Book Detected: {bookname}")
+
+    # STEP 2: USER SCAN
+    countdown(5, "🪪 Get Ready to Scan User ID...")
+    user_id = scan_barcode()
+
+    if not user_id:
+        print("❌ No User ID Detected")
+        continue
+
+    print(f"👤 User ID: {user_id}")
+
+    if mode == "ISSUE":
+        if available == 1:
+            issue_date = datetime.now()
+            return_date = issue_date + timedelta(days=7)
+
+            cursor.execute("UPDATE bookdatabase SET available=0, issuedto=%s, issuedate=%s, returndate=%s WHERE uid=%s",
+                           (user_id, issue_date, return_date, book_id))
+            db.commit()
+
+            print(f"✅ Book Issued: {bookname}")
+            print(f"📅 Return Date: {return_date}")
+        else:
+            print("❌ Book Not Available")
+
+    else:
+        cursor.execute("SELECT issuedto FROM bookdatabase WHERE uid=%s", (book_id,))
+        data = cursor.fetchone()
+
+        if data and data[0] == user_id:
+            cursor.execute("UPDATE bookdatabase SET available=1, issuedto=NULL WHERE uid=%s", (book_id,))
+            db.commit()
+
+            print(f"✅ Book Returned: {bookname}")
+        else:
+            print("❌ Wrong User or Book Not Issued")
+
+    print("⏳ Ready for next user...\n")
+    time.sleep(3)
+
+# Cleanup
+cap.release()
+cv2.destroyAllWindows()
+cursor.close()
+db.close()
