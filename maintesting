@@ -4,7 +4,16 @@ import mysql.connector
 import time
 import RPi.GPIO as GPIO
 from datetime import datetime, timedelta
-import tkinter as tk
+from RPLCD.i2c import CharLCD
+
+# ---------------- LCD SETUP ----------------
+lcd = CharLCD('PCF8574', 0x27)  # change address if needed
+
+def lcd_show(line1="", line2=""):
+    lcd.clear()
+    lcd.write_string(line1)
+    lcd.crlf()
+    lcd.write_string(line2)
 
 # ---------------- GPIO SETUP ----------------
 IR_ISSUE = 17
@@ -14,11 +23,11 @@ GPIO.setmode(GPIO.BCM)
 GPIO.setup(IR_ISSUE, GPIO.IN)
 GPIO.setup(IR_RETURN, GPIO.IN)
 
-# ---------------- CAMERA SETUP ----------------
+# ---------------- CAMERA ----------------
 cap = cv2.VideoCapture(0)
 cap.set(3, 640)
 cap.set(4, 480)
-cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)   # faster scanning
+cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
 # ---------------- DATABASE ----------------
 db = mysql.connector.connect(
@@ -29,18 +38,7 @@ db = mysql.connector.connect(
 )
 cursor = db.cursor()
 
-# ---------------- UI ----------------
-root = tk.Tk()
-root.attributes('-fullscreen', True)
-
-label = tk.Label(root, text="", font=("Helvetica", 30), fg="white", bg="black")
-label.pack(fill="both", expand=True)
-
-def show(msg):
-    label.config(text=msg)
-    root.update()
-
-# ---------------- SCAN FUNCTION ----------------
+# ---------------- SCANNER ----------------
 def scan_code(timeout=10):
     start = time.time()
     while time.time() - start < timeout:
@@ -48,19 +46,14 @@ def scan_code(timeout=10):
         codes = decode(frame)
 
         for code in codes:
-            data = code.data.decode('utf-8').strip()   # FIXED
+            data = code.data.decode('utf-8').strip()
             return data
-
-        cv2.imshow("Scanner", frame)
-        if cv2.waitKey(1) == ord('q'):
-            return None
-
     return None
 
 # ---------------- MAIN LOOP ----------------
 while True:
 
-    show("WAIT...\nPlace Hand\n<-Return   Issue->")
+    lcd_show("Place Hand", "<-Return Issue->")
 
     # wait for IR trigger
     while not (GPIO.input(IR_ISSUE) or GPIO.input(IR_RETURN)):
@@ -68,11 +61,13 @@ while True:
 
     mode = "ISSUE" if GPIO.input(IR_ISSUE) else "RETURN"
 
-    show(f"{mode} MODE\nScan Book QR")
+    lcd_show(mode + " MODE", "Scan Book QR")
+    time.sleep(2)
+
     book_id = scan_code()
 
     if not book_id:
-        show("No Book Scanned")
+        lcd_show("No Book Found", "Try Again")
         time.sleep(2)
         continue
 
@@ -81,34 +76,33 @@ while True:
     book = cursor.fetchone()
 
     if not book:
-        show("INVALID BOOK ❌")
+        lcd_show("Invalid Book", "Scan Again")
         time.sleep(2)
         continue
 
     bookname, available, issuedto, returndate = book
 
-    # -------- ISSUE MODE --------
+    # -------- ISSUE --------
     if mode == "ISSUE":
 
         if available == 0:
-            show("BOOK ALREADY ISSUED ❌")
+            lcd_show("Already Issued", "")
             time.sleep(2)
             continue
 
-        show(f"{bookname}\nScan ID Card")
+        lcd_show("Scan ID Card", "")
         user_id = scan_code()
 
         if not user_id:
-            show("No User Found")
+            lcd_show("No User", "")
             time.sleep(2)
             continue
 
-        # check user
         cursor.execute("SELECT name FROM userdatabase WHERE lid=%s", (user_id,))
         user = cursor.fetchone()
 
         if not user:
-            show("INVALID USER ❌")
+            lcd_show("Invalid User", "")
             time.sleep(2)
             continue
 
@@ -123,31 +117,30 @@ while True:
 
         db.commit()
 
-        show(f"ISSUED ✅\n{bookname}\nReturn in 7 days")
+        lcd_show("Book Issued", "Success")
         time.sleep(3)
 
-    # -------- RETURN MODE --------
+    # -------- RETURN --------
     else:
 
         if available == 1:
-            show("BOOK NOT ISSUED ❌")
+            lcd_show("Not Issued", "")
             time.sleep(2)
             continue
 
-        show(f"{bookname}\nScan ID Card")
+        lcd_show("Scan ID Card", "")
         user_id = scan_code()
 
         if not user_id:
-            show("No User Found")
+            lcd_show("No User", "")
             time.sleep(2)
             continue
 
         if issuedto != user_id:
-            show("WRONG USER ❌")
+            lcd_show("Wrong User", "")
             time.sleep(2)
             continue
 
-        # fine calculation
         fine = 0
         if returndate:
             if datetime.now() > returndate:
@@ -159,7 +152,6 @@ while True:
                     WHERE lid=%s
                 """, (fine, user_id))
 
-        # return book
         cursor.execute("""
             UPDATE bookdatabase 
             SET available=1, issuedto=NULL, issuedate=NULL, returndate=NULL 
@@ -168,5 +160,5 @@ while True:
 
         db.commit()
 
-        show(f"RETURNED ✅\nFine: {fine}")
+        lcd_show("Returned", f"Fine:{fine}")
         time.sleep(3)
