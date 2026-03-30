@@ -1,0 +1,49 @@
+import cv2
+from pyzbar.pyzbar import decode
+
+# Start camera
+cap = cv2.VideoCapture(0)
+
+# Set better resolution
+cap.set(3, 640)
+cap.set(4, 480)
+cap.set(cv2.CAP_PROP_FPS, 30)
+
+print("📷 Camera started... Show barcode")
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        print("Camera error")
+        break
+
+    # Get frame size
+    h, w, _ = frame.shape
+
+    # Focus on center area (ROI)
+    roi = frame[int(h*0.3):int(h*0.7), int(w*0.3):int(w*0.7)]
+
+    # Convert to grayscale (faster)
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+
+    # Decode barcode
+    barcodes = decode(gray)
+
+    for barcode in barcodes:
+        data = barcode.data.decode('utf-8')
+        print("✅ Scanned:", data)
+
+        # Draw rectangle on original frame
+        x, y, w, h = barcode.rect
+        cv2.rectangle(frame, (x+200, y+100), (x+w+200, y+h+100), (0,255,0), 2)
+
+    # Show frame
+    cv2.imshow("Barcode Scanner", frame)
+
+    # Press Q to exit
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# Cleanup
+cap.release()
+cv2.destroyAllWindows()
