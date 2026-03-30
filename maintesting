@@ -15,13 +15,11 @@ def lcd_print(line1="", line2=""):
     lcd.cursor_pos = (1, 0)
     lcd.write_string(line2[:16])
 
-# ------------------- CAMERA SETUP -------------------
+# ------------------- CAMERA -------------------
 cap = cv2.VideoCapture(0)
 
-# 🔥 FIX: Check camera
 if not cap.isOpened():
-    lcd_print("Camera Error", "Check Device")
-    print("Camera not found")
+    lcd_print("Camera Error", "")
     exit()
 
 cap.set(3, 640)
@@ -33,8 +31,6 @@ IR_PIN_ISSUE = 17
 IR_PIN_RETURN = 26
 
 GPIO.setmode(GPIO.BCM)
-
-# 🔥 FIX: prevent floating
 GPIO.setup(IR_PIN_ISSUE, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 GPIO.setup(IR_PIN_RETURN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
@@ -50,18 +46,16 @@ cursor = db.cursor()
 lcd_print("Library System", "Starting...")
 time.sleep(2)
 
-# ------------------- SAFE SCAN FUNCTION -------------------
+# ------------------- SCAN FUNCTION -------------------
 def scan_qr(timeout=10):
     start = time.time()
     while time.time() - start < timeout:
         ret, frame = cap.read()
 
-        # 🔥 FIX: prevent crash
         if not ret or frame is None:
             continue
 
         codes = decode(frame)
-
         for code in codes:
             return code.data.decode('utf-8').strip()
 
@@ -72,13 +66,11 @@ while True:
 
     lcd_print("Place Hand", "<-Return Issue->")
 
-    # wait for IR trigger
     while not (GPIO.input(IR_PIN_ISSUE) or GPIO.input(IR_PIN_RETURN)):
         time.sleep(0.1)
 
-    time.sleep(0.2)  # debounce
+    time.sleep(0.2)
 
-    # 🔥 FIXED MODE DETECTION
     if GPIO.input(IR_PIN_ISSUE):
         mode = "ISSUE"
         lcd_print("ISSUE MODE", "Scan Book")
@@ -98,7 +90,6 @@ while True:
         time.sleep(2)
         continue
 
-    # fetch book
     cursor.execute("""
         SELECT uid, bookname, available, issuedto, returndate
         FROM bookdatabase
@@ -126,11 +117,7 @@ while True:
         time.sleep(2)
         continue
 
-    # fetch user
-    cursor.execute("""
-        SELECT name FROM userdatabase WHERE lid=%s
-    """, (user_id,))
-    
+    cursor.execute("SELECT name FROM userdatabase WHERE lid=%s", (user_id,))
     user = cursor.fetchone()
 
     if not user:
@@ -192,9 +179,16 @@ while True:
             lcd_print("Wrong User", "")
             time.sleep(2)
 
-    # ---------------- DELAY ----------------
-    lcd_print("Wait 5 Sec", "Next User")
-    time.sleep(5)
+    # ---------------- FINAL FIX (IMPORTANT) ----------------
+    lcd_print("Remove Hand", "")
+    time.sleep(2)
+
+    # 🔥 WAIT UNTIL SENSOR LOW
+    while GPIO.input(IR_PIN_ISSUE) or GPIO.input(IR_PIN_RETURN):
+        time.sleep(0.1)
+
+    lcd_print("Ready", "Next User")
+    time.sleep(2)
 
 # cleanup
 cap.release()
