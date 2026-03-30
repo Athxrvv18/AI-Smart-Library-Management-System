@@ -6,159 +6,182 @@ import RPi.GPIO as GPIO
 from datetime import datetime, timedelta
 from RPLCD.i2c import CharLCD
 
-# ---------------- LCD SETUP ----------------
-lcd = CharLCD('PCF8574', 0x27)  # change address if needed
+# ------------------- LCD SETUP -------------------
+lcd = CharLCD('PCF8574', 0x27)   # change to 0x3F if needed
 
-def lcd_show(line1="", line2=""):
+def lcd_print(line1="", line2=""):
     lcd.clear()
-    lcd.write_string(line1)
-    lcd.crlf()
-    lcd.write_string(line2)
+    lcd.write_string(line1[:16])
+    lcd.cursor_pos = (1, 0)
+    lcd.write_string(line2[:16])
 
-# ---------------- GPIO SETUP ----------------
-IR_ISSUE = 17
-IR_RETURN = 26
-
-GPIO.setmode(GPIO.BCM)
-GPIO.setup(IR_ISSUE, GPIO.IN)
-GPIO.setup(IR_RETURN, GPIO.IN)
-
-# ---------------- CAMERA ----------------
+# ------------------- CAMERA -------------------
 cap = cv2.VideoCapture(0)
 cap.set(3, 640)
 cap.set(4, 480)
-cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-# ---------------- DATABASE ----------------
+# ------------------- IR PINS -------------------
+IR_PIN_ISSUE = 17
+IR_PIN_RETURN = 26
+
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(IR_PIN_ISSUE, GPIO.IN)
+GPIO.setup(IR_PIN_RETURN, GPIO.IN)
+
+# ------------------- DATABASE -------------------
 db = mysql.connector.connect(
     host="localhost",
     user="root",
-    password="YOUR_PASSWORD",
+    password="admin",
     database="library"
 )
 cursor = db.cursor()
 
-# ---------------- SCANNER ----------------
-def scan_code(timeout=10):
-    start = time.time()
-    while time.time() - start < timeout:
-        ret, frame = cap.read()
-        codes = decode(frame)
+lcd_print("Library System", "Starting...")
+time.sleep(3)
 
-        for code in codes:
-            data = code.data.decode('utf-8').strip()
-            return data
-    return None
-
-# ---------------- MAIN LOOP ----------------
+# ------------------- MAIN LOOP -------------------
 while True:
 
-    lcd_show("Place Hand", "<-Return Issue->")
+    lcd_print("Place Hand", "Near Sensor")
+    print("Waiting for user...")
 
-    # wait for IR trigger
-    while not (GPIO.input(IR_ISSUE) or GPIO.input(IR_RETURN)):
-        time.sleep(0.5)
+    # Wait IR
+    while not (GPIO.input(IR_PIN_ISSUE) or GPIO.input(IR_PIN_RETURN)):
+        time.sleep(0.1)
 
-    mode = "ISSUE" if GPIO.input(IR_ISSUE) else "RETURN"
+    # Detect mode
+    if GPIO.input(IR_PIN_ISSUE):
+        mode = "ISSUE"
+        lcd_print("ISSUE MODE", "Scan Book")
+    else:
+        mode = "RETURN"
+        lcd_print("RETURN MODE", "Scan Book")
 
-    lcd_show(mode + " MODE", "Scan Book QR")
     time.sleep(2)
 
-    book_id = scan_code()
+    # ---------------- BOOK SCAN ----------------
+    book_id = None
+    start_time = time.time()
+
+    while time.time() - start_time < 10:
+        ret, frame = cap.read()
+        barcodes = decode(frame)
+
+        for barcode in barcodes:
+            book_id = barcode.data.decode('utf-8').strip()
+            break
+
+        if book_id:
+            break
 
     if not book_id:
-        lcd_show("No Book Found", "Try Again")
+        lcd_print("No Book Found", "Try Again")
         time.sleep(2)
         continue
 
-    # -------- CHECK BOOK --------
-    cursor.execute("SELECT bookname, available, issuedto, returndate FROM bookdatabase WHERE uid=%s", (book_id,))
+    # Fetch book
+    cursor.execute("""
+        SELECT uid, bookname, available, issuedto 
+        FROM bookdatabase 
+        WHERE uid=%s
+    """, (book_id,))
+    
     book = cursor.fetchone()
 
     if not book:
-        lcd_show("Invalid Book", "Scan Again")
+        lcd_print("Invalid Book", "")
         time.sleep(2)
         continue
 
-    bookname, available, issuedto, returndate = book
+    uid, bookname, available, issuedto = book
 
-    # -------- ISSUE --------
+    lcd_print("Book Found", bookname[:16])
+    time.sleep(2)
+
+    # ---------------- USER SCAN ----------------
+    lcd_print("Scan User ID", "")
+    user_id = None
+
+    start_time = time.time()
+    while time.time() - start_time < 10:
+        ret, frame = cap.read()
+        barcodes = decode(frame)
+
+        for barcode in barcodes:
+            user_id = barcode.data.decode('utf-8').strip()
+            break
+
+        if user_id:
+            break
+
+    if not user_id:
+        lcd_print("No User Found", "")
+        time.sleep(2)
+        continue
+
+    # Fetch user
+    cursor.execute("""
+        SELECT name 
+        FROM userdatabase 
+        WHERE lid=%s
+    """, (user_id,))
+    
+    user = cursor.fetchone()
+
+    if not user:
+        lcd_print("Invalid User", "")
+        time.sleep(2)
+        continue
+
+    username = user[0]
+
+    # ---------------- ISSUE ----------------
     if mode == "ISSUE":
 
-        if available == 0:
-            lcd_show("Already Issued", "")
+        if available == 1:
+            issue_date = datetime.now()
+            return_date = issue_date + timedelta(days=7)
+
+            cursor.execute("""
+                UPDATE bookdatabase 
+                SET available=0, issuedto=%s, issuedate=%s, returndate=%s 
+                WHERE uid=%s
+            """, (user_id, issue_date, return_date, book_id))
+
+            db.commit()
+
+            lcd_print("Issued to", username[:16])
+            time.sleep(3)
+
+        else:
+            lcd_print("Already Issued", "")
             time.sleep(2)
-            continue
 
-        lcd_show("Scan ID Card", "")
-        user_id = scan_code()
-
-        if not user_id:
-            lcd_show("No User", "")
-            time.sleep(2)
-            continue
-
-        cursor.execute("SELECT name FROM userdatabase WHERE lid=%s", (user_id,))
-        user = cursor.fetchone()
-
-        if not user:
-            lcd_show("Invalid User", "")
-            time.sleep(2)
-            continue
-
-        issue_date = datetime.now()
-        return_date = issue_date + timedelta(days=7)
-
-        cursor.execute("""
-            UPDATE bookdatabase 
-            SET available=0, issuedto=%s, issuedate=%s, returndate=%s 
-            WHERE uid=%s
-        """, (user_id, issue_date, return_date, book_id))
-
-        db.commit()
-
-        lcd_show("Book Issued", "Success")
-        time.sleep(3)
-
-    # -------- RETURN --------
+    # ---------------- RETURN ----------------
     else:
 
-        if available == 1:
-            lcd_show("Not Issued", "")
+        if issuedto == user_id:
+            cursor.execute("""
+                UPDATE bookdatabase 
+                SET available=1, issuedto=NULL, issuedate=NULL, returndate=NULL 
+                WHERE uid=%s
+            """, (book_id,))
+
+            db.commit()
+
+            lcd_print("Returned by", username[:16])
+            time.sleep(3)
+
+        else:
+            lcd_print("Wrong User", "")
             time.sleep(2)
-            continue
 
-        lcd_show("Scan ID Card", "")
-        user_id = scan_code()
+    # ---------------- DELAY ----------------
+    lcd_print("Wait 5 Sec", "Next User")
+    time.sleep(5)
 
-        if not user_id:
-            lcd_show("No User", "")
-            time.sleep(2)
-            continue
-
-        if issuedto != user_id:
-            lcd_show("Wrong User", "")
-            time.sleep(2)
-            continue
-
-        fine = 0
-        if returndate:
-            if datetime.now() > returndate:
-                fine = 50
-
-                cursor.execute("""
-                    UPDATE userdatabase 
-                    SET fine = fine + %s 
-                    WHERE lid=%s
-                """, (fine, user_id))
-
-        cursor.execute("""
-            UPDATE bookdatabase 
-            SET available=1, issuedto=NULL, issuedate=NULL, returndate=NULL 
-            WHERE uid=%s
-        """, (book_id,))
-
-        db.commit()
-
-        lcd_show("Returned", f"Fine:{fine}")
-        time.sleep(3)
+# Cleanup
+cap.release()
+cv2.destroyAllWindows()
+GPIO.cleanup()
