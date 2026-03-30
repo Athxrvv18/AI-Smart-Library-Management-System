@@ -5,6 +5,7 @@ import time
 import RPi.GPIO as GPIO
 from datetime import datetime, timedelta
 from RPLCD.i2c import CharLCD
+import os
 
 # ------------------- LCD -------------------
 lcd = CharLCD('PCF8574', 0x27)
@@ -15,21 +16,21 @@ def lcd_print(l1="", l2=""):
     lcd.cursor_pos = (1, 0)
     lcd.write_string(l2[:16])
 
-# ------------------- GPIO SETUP -------------------
+# ------------------- GPIO -------------------
 GPIO.setmode(GPIO.BCM)
 
 IR_ISSUE = 17
 IR_RETURN = 26
 LED_GREEN = 22
 LED_RED = 23
+BUZZER = 24
 
 GPIO.setup(IR_ISSUE, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 GPIO.setup(IR_RETURN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-
 GPIO.setup(LED_GREEN, GPIO.OUT)
 GPIO.setup(LED_RED, GPIO.OUT)
+GPIO.setup(BUZZER, GPIO.OUT)
 
-# LED STATES
 def ready_mode():
     GPIO.output(LED_GREEN, True)
     GPIO.output(LED_RED, False)
@@ -42,16 +43,24 @@ def idle_mode():
     GPIO.output(LED_GREEN, False)
     GPIO.output(LED_RED, False)
 
+# 🔊 Better buzzer sounds
+def beep_success():
+    GPIO.output(BUZZER, True)
+    time.sleep(0.1)
+    GPIO.output(BUZZER, False)
+
+def beep_error():
+    for _ in range(3):
+        GPIO.output(BUZZER, True)
+        time.sleep(0.1)
+        GPIO.output(BUZZER, False)
+        time.sleep(0.1)
+
 # ------------------- CAMERA -------------------
 cap = cv2.VideoCapture(0)
-
 if not cap.isOpened():
     lcd_print("Camera Error", "")
     exit()
-
-cap.set(3, 640)
-cap.set(4, 480)
-cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
 # ------------------- DATABASE -------------------
 db = mysql.connector.connect(
@@ -62,18 +71,27 @@ db = mysql.connector.connect(
 )
 cursor = db.cursor()
 
-# ------------------- SCAN FUNCTION -------------------
+# ------------------- SCAN -------------------
+last_scan = None
+
 def scan_qr(timeout=10):
+    global last_scan
     start = time.time()
+
     while time.time() - start < timeout:
         ret, frame = cap.read()
-
-        if not ret or frame is None:
+        if not ret:
             continue
 
         codes = decode(frame)
         for code in codes:
-            return code.data.decode('utf-8').strip()
+            data = code.data.decode('utf-8').strip()
+
+            if data == last_scan:
+                continue
+
+            last_scan = data
+            return data
 
     return None
 
@@ -84,78 +102,81 @@ time.sleep(2)
 # ------------------- MAIN LOOP -------------------
 while True:
 
-    # -------- IDLE → READY --------
     idle_mode()
     time.sleep(1)
 
     ready_mode()
     lcd_print("Place Hand", "<-Return Issue->")
 
-    # Wait for hand (ACTIVE LOW)
     while GPIO.input(IR_ISSUE) and GPIO.input(IR_RETURN):
         time.sleep(0.1)
 
-    time.sleep(0.2)  # debounce
-
-    # -------- PROCESS START --------
+    time.sleep(0.2)
     processing_mode()
 
     if not GPIO.input(IR_ISSUE):
         mode = "ISSUE"
-        lcd_print("ISSUE MODE", "Scan Book")
     elif not GPIO.input(IR_RETURN):
         mode = "RETURN"
-        lcd_print("RETURN MODE", "Scan Book")
     else:
         continue
 
+    lcd_print(mode + " MODE", "Scan Book")
     time.sleep(2)
 
-    # -------- BOOK SCAN --------
+    # ---------------- BOOK ----------------
+    lcd_print("Step1:ScanBook", "")
     book_id = scan_qr()
 
     if not book_id:
-        lcd_print("No Book Found", "")
-        time.sleep(2)
+        lcd_print("Timeout", "")
+        beep_error()
         continue
 
-    cursor.execute("""
-        SELECT uid, bookname, available, issuedto, returndate
-        FROM bookdatabase WHERE uid=%s
-    """, (book_id,))
-    
+    cursor.execute("SELECT uid, bookname, available, issuedto, returndate FROM bookdatabase WHERE uid=%s", (book_id,))
     book = cursor.fetchone()
 
     if not book:
         lcd_print("Invalid Book", "")
-        time.sleep(2)
+        beep_error()
         continue
 
     uid, bookname, available, issuedto, returndate = book
-
-    lcd_print("Book:", bookname[:16])
+    lcd_print("Book OK ✔", bookname[:16])
     time.sleep(2)
 
-    # -------- USER SCAN --------
-    lcd_print("Scan ID Card", "")
+    # ---------------- USER ----------------
+    lcd_print("Step2:ScanID", "")
+
+    # ⏱ Countdown
+    for i in range(5, 0, -1):
+        lcd_print("Scan ID in", str(i))
+        time.sleep(1)
+
     user_id = scan_qr()
 
     if not user_id:
-        lcd_print("No User Found", "")
-        time.sleep(2)
+        lcd_print("Timeout", "")
+        beep_error()
         continue
 
-    cursor.execute("SELECT name FROM userdatabase WHERE lid=%s", (user_id,))
+    cursor.execute("SELECT name, issued FROM userdatabase WHERE lid=%s", (user_id,))
     user = cursor.fetchone()
 
     if not user:
         lcd_print("Invalid User", "")
-        time.sleep(2)
+        beep_error()
         continue
 
-    username = user[0]
+    username, issued_count = user
 
-    # -------- ISSUE --------
+    # 🚫 Limit books
+    if mode == "ISSUE" and issued_count >= 3:
+        lcd_print("Limit Reached", "")
+        beep_error()
+        continue
+
+    # ---------------- ISSUE ----------------
     if mode == "ISSUE":
 
         if available == 1:
@@ -168,63 +189,61 @@ while True:
                 WHERE uid=%s
             """, (user_id, issue_date, return_date, book_id))
 
+            cursor.execute("""
+                UPDATE userdatabase SET issued = issued + 1 WHERE lid=%s
+            """, (user_id,))
+
             db.commit()
 
-            lcd_print("Issued to", username[:16])
-            time.sleep(3)
+            lcd_print("Issued ✔", username[:16])
+            time.sleep(2)
+
+            lcd_print("Return Date", str(return_date.date()))
+            beep_success()
 
         else:
             lcd_print("Already Issued", "")
-            time.sleep(2)
+            beep_error()
 
-    # -------- RETURN --------
+    # ---------------- RETURN ----------------
     else:
 
         if issuedto == user_id:
-            fine = 0
-
-            if returndate and datetime.now() > returndate:
-                fine = 50
-
-                cursor.execute("""
-                    UPDATE userdatabase 
-                    SET fine = fine + %s 
-                    WHERE lid=%s
-                """, (fine, user_id))
-
             cursor.execute("""
                 UPDATE bookdatabase 
                 SET available=1, issuedto=NULL, issuedate=NULL, returndate=NULL 
                 WHERE uid=%s
             """, (book_id,))
 
+            cursor.execute("""
+                UPDATE userdatabase SET issued = issued - 1 WHERE lid=%s
+            """, (user_id,))
+
             db.commit()
 
-            lcd_print("Returned", f"Fine:{fine}")
-            time.sleep(3)
+            lcd_print("Returned ✔", username[:16])
+            beep_success()
 
         else:
             lcd_print("Wrong User", "")
-            time.sleep(2)
+            beep_error()
 
-    # -------- FINAL FLOW --------
-    lcd_print("Thank You!", "Visit Again")
-    time.sleep(2)
+    # ---------------- BACKUP ----------------
+    os.system("mysqldump -u root -padmin library > backup.sql")
 
-    lcd_print("Processing...", "")
+    time.sleep(3)
+
+    lcd_print("Thank You!", "")
     time.sleep(2)
 
     lcd_print("Remove Hand", "")
-
-    # Wait until hand removed (ACTIVE LOW fix)
-    while not (GPIO.input(IR_ISSUE) and GPIO.input(IR_RETURN)):
+    while not (GPIO.input(IR_ISSUE) and GPIO.input(IR_RETURN):
         time.sleep(0.1)
 
-    # back to idle before next user
     idle_mode()
     time.sleep(1)
 
-    lcd_print("Next User", "Get Ready")
+    lcd_print("Next User", "")
     time.sleep(2)
 
 # cleanup
